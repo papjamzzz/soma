@@ -450,6 +450,141 @@ blob('footR', 0.06, [ 0.12,-0.86,0.04], [0.8,0.6,1.5], 'extremities');
 // Lift so the figure centers nicely in frame
 body.position.y = 0.05;
 
+// ── Living Skin — biosurface shader layer ─────────────────
+// Each biomarker maps to a 3D point in body-local space.
+// A transparent shell mesh sits just outside every body part.
+// The shell vertex shader applies gaussian deformation outward
+// along the surface normal + ripple rings from critical zones.
+// Colors use the full biosurface gradient (purple→cyan).
+const TRIGGER_DEFS = [
+  { key:'heart_rate',    pos:[ 0.06,  0.48,  0.12], sg:0.28 },
+  { key:'resting_hr',    pos:[-0.06,  0.48,  0.12], sg:0.28 },
+  { key:'hrv',           pos:[ 0.00,  0.45, -0.08], sg:0.35 },
+  { key:'spo2',          pos:[ 0.32, -0.02,  0.06], sg:0.22 },
+  { key:'resp_rate',     pos:[ 0.00,  0.50,  0.10], sg:0.30 },
+  { key:'vo2max',        pos:[ 0.00, -0.35,  0.05], sg:0.38 },
+  { key:'wrist_temp',    pos:[ 0.00,  0.24,  0.10], sg:0.30 },
+  { key:'sleep',         pos:[ 0.00,  0.78,  0.00], sg:0.22 },
+  { key:'cardio_rec',    pos:[ 0.10,  0.42,  0.10], sg:0.26 },
+  { key:'walking_hr',    pos:[ 0.00, -0.60,  0.00], sg:0.35 },
+  { key:'active_energy', pos:[-0.10, -0.50,  0.00], sg:0.35 },
+  { key:'ecg',           pos:[-0.08,  0.50,  0.14], sg:0.20 },
+  { key:'cortisol',      pos:[ 0.00,  0.30,  0.08], sg:0.35 },
+  { key:'testosterone',  pos:[ 0.20,  0.38,  0.04], sg:0.30 },
+  { key:'crp',           pos:[-0.10,  0.26,  0.08], sg:0.32 },
+  { key:'glucose',       pos:[ 0.08,  0.22,  0.10], sg:0.28 },
+  { key:'vitamin_d',     pos:[ 0.00,  0.04,  0.08], sg:0.28 },
+  { key:'tsh',           pos:[ 0.00,  0.62,  0.06], sg:0.22 },
+  { key:'estradiol',     pos:[-0.08,  0.02,  0.10], sg:0.26 },
+  { key:'ldl',           pos:[ 0.00,  0.44,  0.08], sg:0.30 },
+];
+
+const SKIN_VERT = `
+  uniform float u_time;
+  uniform float u_bodyY;
+  uniform vec3  u_triggers[20];
+  uniform float u_sigmas[20];
+  uniform float u_severity[20];
+  uniform float u_status[20];
+
+  varying float v_colorT;
+  varying vec3  v_worldNormal;
+  varying vec3  v_worldPos;
+
+  void main() {
+    vec4 wp4 = modelMatrix * vec4(position, 1.0);
+    vec3 wp  = wp4.xyz;
+    vec3 wn  = normalize(mat3(modelMatrix) * normal);
+
+    float totalDeform = 0.0;
+    float sevSum      = 0.0;
+    float gSum        = 0.0;
+
+    for (int i = 0; i < 20; i++) {
+      vec3  tp  = u_triggers[i] + vec3(0.0, u_bodyY, 0.0);
+      float d   = distance(wp, tp);
+      float sig = u_sigmas[i];
+      float g   = exp(-(d*d)/(2.0*sig*sig));
+      float sev = u_severity[i];
+      float def = g * sev * 0.030;
+      if (u_status[i] > 1.5) {
+        def += sin(d*14.0 - u_time*3.2) * exp(-d*6.0) * 0.010 * sev;
+      }
+      totalDeform += def;
+      sevSum      += g * sev;
+      gSum        += g;
+    }
+
+    totalDeform += sin(u_time*1.1 + length(position)*1.8) * 0.004;
+
+    v_colorT      = clamp(sevSum / max(gSum, 0.001), 0.0, 1.0);
+    v_worldNormal = wn;
+    v_worldPos    = wp;
+
+    gl_Position = projectionMatrix * modelViewMatrix *
+      vec4(position + normal * (0.007 + totalDeform), 1.0);
+  }
+`;
+
+const SKIN_FRAG = `
+  uniform float u_time;
+
+  varying float v_colorT;
+  varying vec3  v_worldNormal;
+  varying vec3  v_worldPos;
+
+  vec3 bioGrad(float sev) {
+    float t = clamp(1.0 - sev, 0.0, 1.0);
+    vec3 c0 = vec3(0.42,0.13,0.66);
+    vec3 c1 = vec3(0.86,0.15,0.15);
+    vec3 c2 = vec3(0.95,0.48,0.05);
+    vec3 c3 = vec3(0.92,0.84,0.05);
+    vec3 c4 = vec3(0.13,0.76,0.26);
+    vec3 c5 = vec3(0.02,0.71,0.84);
+    if (t < 0.18) return mix(c0, c1, t/0.18);
+    if (t < 0.36) return mix(c1, c2, (t-0.18)/0.18);
+    if (t < 0.54) return mix(c2, c3, (t-0.36)/0.18);
+    if (t < 0.72) return mix(c3, c4, (t-0.54)/0.18);
+                  return mix(c4, c5, (t-0.72)/0.28);
+  }
+
+  void main() {
+    vec3  col = bioGrad(v_colorT);
+    vec3  vd  = normalize(cameraPosition - v_worldPos);
+    float fr  = pow(1.0 - max(dot(vd, v_worldNormal), 0.0), 1.6);
+    float alpha = clamp(0.08 + v_colorT*0.52 + fr*(0.26 + v_colorT*0.24), 0.0, 0.86);
+    col += sin(u_time*2.2 + v_worldPos.y*7.0) * 0.022 * vec3(0.3,0.4,0.5);
+    gl_FragColor = vec4(col, alpha);
+  }
+`;
+
+const skinUniforms = {
+  u_time:     { value: 0.0 },
+  u_bodyY:    { value: 0.05 },
+  u_triggers: { value: TRIGGER_DEFS.map(t => new THREE.Vector3(...t.pos)) },
+  u_sigmas:   { value: TRIGGER_DEFS.map(t => t.sg) },
+  u_severity: { value: new Array(20).fill(0.0) },
+  u_status:   { value: new Array(20).fill(0.0) },
+};
+
+const shellGroup = new THREE.Group();
+Object.values(parts).forEach(mesh => {
+  const mat = new THREE.ShaderMaterial({
+    vertexShader:   SKIN_VERT,
+    fragmentShader: SKIN_FRAG,
+    uniforms:       skinUniforms,
+    transparent:    true,
+    depthWrite:     false,
+    side:           THREE.FrontSide,
+  });
+  const shell = new THREE.Mesh(mesh.geometry, mat);
+  shell.position.copy(mesh.position);
+  shell.quaternion.copy(mesh.quaternion);
+  shell.scale.copy(mesh.scale);
+  shellGroup.add(shell);
+});
+body.add(shellGroup);
+
 // ── Ground glow (contact pad) ─────────────────────────────
 const padGeo = new THREE.CircleGeometry(1.1, 64);
 const padMat = new THREE.MeshBasicMaterial({
@@ -605,6 +740,19 @@ function applyLayer() {
   targetOverall = layer === 'watch' ? latest.overall_watch
                : layer === 'lab'   ? latest.overall_lab
                : Math.round((latest.overall_watch + latest.overall_lab) / 2);
+  // Push severities into the skin shader
+  const sevArr  = new Array(20).fill(0.0);
+  const statArr = new Array(20).fill(0.0);
+  TRIGGER_DEFS.forEach((def, i) => {
+    const m = latest.markers.find(mk => mk.key === def.key);
+    if (m) {
+      const active = layer === 'both' || m.source === layer;
+      sevArr[i]  = active ? m.severity : 0.0;
+      statArr[i] = active ? (m.status === 'critical' ? 2.0 : m.status === 'warn' ? 1.0 : 0.0) : 0.0;
+    }
+  });
+  skinUniforms.u_severity.value = sevArr;
+  skinUniforms.u_status.value   = statArr;
   renderPanel();
 }
 
@@ -738,6 +886,8 @@ function animate() {
   chest.scale.set(1.05 * breathe, 1.0 * breathe, 0.62);
   body.position.y = 0.05 + Math.sin(t * 0.6) * 0.015;
   particles.rotation.y += dt * 0.02;
+  skinUniforms.u_time.value  = t;
+  skinUniforms.u_bodyY.value = body.position.y;
   updateRegions(t, dt);
   // ease the score ring toward the active-layer overall
   scoreDisp += (targetOverall - scoreDisp) * Math.min(1, dt * 2.2); updateScoreRing(scoreDisp);
