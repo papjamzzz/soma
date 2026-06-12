@@ -70,6 +70,15 @@
       text-transform: uppercase; color: var(--dim);
       display: flex; align-items: center; gap: 8px;
     }
+    .score { display: flex; flex-direction: column; align-items: flex-end; margin-right: 6px; }
+    .score-num {
+      font-size: 20px; font-weight: 800; letter-spacing: -0.02em;
+      color: var(--text); line-height: 1;
+    }
+    .score-lbl {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.2em;
+      text-transform: uppercase; color: var(--dim); margin-top: 3px;
+    }
     .pulse-dot {
       width: 7px; height: 7px; border-radius: 50%;
       background: var(--good); box-shadow: 0 0 10px var(--good);
@@ -126,6 +135,10 @@
     </div>
   </div>
   <div class="header-right">
+    <div class="score">
+      <span class="score-num" id="score-val">--</span>
+      <span class="score-lbl">Body Score</span>
+    </div>
     <span class="pulse-dot"></span>
     <span>Simulated Feed</span>
   </div>
@@ -339,14 +352,19 @@ function severityColor(s) {
   return c;
 }
 
-const regionState = {};               // region -> severity 0..1
+const regionState = {};               // region -> { cur, target }
 function setRegionSeverity(region, s) {
-  regionState[region] = Math.max(0, Math.min(1, s));
+  s = Math.max(0, Math.min(1, s));
+  if (!regionState[region]) regionState[region] = { cur: s, target: s };
+  else regionState[region].target = s;
 }
 
-function updateRegions(t) {
+function updateRegions(t, dt) {
   for (const [region, meshes] of Object.entries(regionMap)) {
-    const s = regionState[region] ?? 0;
+    const st = regionState[region] || { cur: 0, target: 0 };
+    // ease current severity toward the live target
+    st.cur += (st.target - st.cur) * Math.min(1, dt * 2.5);
+    const s = st.cur;
     const col = severityColor(s);
     // healthy = calm/dim; problems glow and pulse — kept low so HUE reads
     const pulse = s > 0.4 ? (1 + Math.sin(t * 3.0) * 0.22 * s) : 1;
@@ -360,24 +378,35 @@ function updateRegions(t) {
   }
 }
 
-// ── DEMO values (Phase 3 replaces these with the live feed) ─
-setRegionSeverity('brain',       0.15);   // sleep solid
-setRegionSeverity('cardio',      0.85);   // HR / HRV flagged
-setRegionSeverity('gut',         0.45);   // mild
-setRegionSeverity('pelvis',      0.10);
-setRegionSeverity('arms',        0.30);
-setRegionSeverity('legs',        0.60);   // VO2 / walking HR
-setRegionSeverity('extremities', 0.70);   // SpO2 low at hands/feet
+// ── Phase 3: live biomarker feed ──────────────────────────
+let latest = null;     // last full snapshot (markers + overall)
+async function pollFeed() {
+  try {
+    const r = await fetch('/api/biomarkers', { cache: 'no-store' });
+    const data = await r.json();
+    latest = data;
+    for (const [region, sev] of Object.entries(data.regions)) {
+      setRegionSeverity(region, sev);
+    }
+    window.SOMA && (window.SOMA.latest = data);
+    const score = document.getElementById('score-val');
+    if (score) score.textContent = data.overall;
+  } catch (e) { /* keep last good state */ }
+}
+pollFeed();
+setInterval(pollFeed, 2000);
 
 // ── Animate ───────────────────────────────────────────────
 const clock = new THREE.Clock();
+let prev = clock.getElapsedTime();
 function animate() {
   requestAnimationFrame(animate);
   const t = clock.getElapsedTime();
+  const dt = Math.min(0.1, t - prev); prev = t;
   // subtle breathing on the chest so it feels alive
   const breathe = 1 + Math.sin(t * 1.1) * 0.012;
   chest.scale.set(1.05 * breathe, 1.0 * breathe, 0.62);
-  updateRegions(t);
+  updateRegions(t, dt);
   controls.update();
   composer.render();
 }
