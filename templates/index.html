@@ -108,6 +108,78 @@
       transition: opacity .8s ease;
     }
     #loader.hide { opacity: 0; pointer-events: none; }
+
+    /* ── DETAIL PANEL ── */
+    .panel {
+      position: fixed; top: 0; right: 0; height: 100%; width: 358px;
+      z-index: 40;
+      background: linear-gradient(180deg, rgba(17,19,30,0.97), rgba(9,11,19,0.97));
+      backdrop-filter: blur(20px);
+      border-left: 1px solid var(--border);
+      box-shadow: -34px 0 70px rgba(0,0,0,0.55);
+      transform: translateX(100%);
+      transition: transform .46s cubic-bezier(.16,1,.3,1);
+      display: flex; flex-direction: column;
+      padding: 26px 22px 22px;
+    }
+    .panel.open { transform: translateX(0); }
+    .panel-top { display: flex; align-items: flex-start; justify-content: space-between; }
+    .panel-region {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.22em;
+      text-transform: uppercase; color: var(--dim);
+    }
+    .panel-title {
+      font-size: 25px; font-weight: 800; letter-spacing: -0.02em; margin-top: 5px;
+    }
+    .panel-close {
+      background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+      color: var(--dim); width: 30px; height: 30px; border-radius: 8px;
+      cursor: pointer; font-size: 13px; transition: all .2s; flex: none;
+    }
+    .panel-close:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+    .panel-pill {
+      display: inline-flex; align-items: center; gap: 7px; align-self: flex-start;
+      margin-top: 16px; padding: 6px 12px; border-radius: 100px;
+      background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+      font-size: 11px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase;
+    }
+    .pill-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .panel-desc {
+      font-size: 12.5px; color: var(--dim); line-height: 1.55; margin: 16px 0 10px;
+    }
+    .markers { display: flex; flex-direction: column; gap: 3px; overflow-y: auto; margin-top: 6px; }
+    .mrow {
+      display: flex; align-items: center; gap: 12px;
+      padding: 13px 13px; border-radius: 11px;
+      background: rgba(255,255,255,0.018); border: 1px solid transparent;
+      transition: border-color .2s;
+    }
+    .mrow:hover { border-color: var(--border); }
+    .mdot { width: 8px; height: 8px; border-radius: 50%; flex: none; box-shadow: 0 0 8px currentColor; }
+    .mlabel { font-size: 13px; font-weight: 600; flex: 1; }
+    .mval { font-size: 15px; font-weight: 800; letter-spacing: -0.01em; }
+    .munit { font-size: 10px; color: var(--dim); margin-left: 3px; font-weight: 600; }
+    .mtrend { width: 13px; text-align: center; font-size: 10px; color: var(--dim); flex: none; }
+    .panel-empty {
+      margin-top: 18px; padding: 22px; border-radius: 12px;
+      background: rgba(255,255,255,0.02); border: 1px dashed var(--border);
+      text-align: center; font-size: 11px; font-weight: 700;
+      letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim);
+    }
+
+    /* ── LEGEND ── */
+    .legend {
+      position: fixed; left: 22px; bottom: 24px; z-index: 30;
+      display: flex; flex-direction: column; gap: 9px;
+      background: rgba(13,15,26,0.5); backdrop-filter: blur(10px);
+      border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px;
+    }
+    .legend-item {
+      display: flex; align-items: center; gap: 9px;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--dim);
+    }
+    .legend-dot { width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 8px currentColor; }
     .loader-inner { text-align: center; }
     .loader-ring {
       width: 46px; height: 46px; margin: 0 auto 18px;
@@ -149,6 +221,25 @@
     <path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>
   </svg>
   Drag to rotate &nbsp;·&nbsp; Scroll to zoom
+</div>
+
+<aside class="panel" id="panel">
+  <div class="panel-top">
+    <div>
+      <div class="panel-region">Region</div>
+      <div class="panel-title" id="p-title">—</div>
+    </div>
+    <button class="panel-close" id="p-close">✕</button>
+  </div>
+  <div class="panel-pill" id="p-pill"><span class="pill-dot"></span><span id="p-pill-txt">—</span></div>
+  <div class="panel-desc" id="p-desc"></div>
+  <div class="markers" id="p-markers"></div>
+</aside>
+
+<div class="legend">
+  <div class="legend-item"><span class="legend-dot" style="color:var(--good);background:var(--good)"></span>Optimal</div>
+  <div class="legend-item"><span class="legend-dot" style="color:var(--warn);background:var(--warn)"></span>Caution</div>
+  <div class="legend-item"><span class="legend-dot" style="color:var(--bad);background:var(--bad)"></span>Critical</div>
 </div>
 
 <div id="loader">
@@ -368,8 +459,12 @@ function updateRegions(t, dt) {
     const col = severityColor(s);
     // healthy = calm/dim; problems glow and pulse — kept low so HUE reads
     const pulse = s > 0.4 ? (1 + Math.sin(t * 3.0) * 0.22 * s) : 1;
-    const inten = (0.05 + s * 0.5) * pulse;
-    const tint  = 0.45 + s * 0.35;    // color shows mostly on the lit surface
+    let inten = (0.05 + s * 0.5) * pulse;
+    let tint  = 0.45 + s * 0.35;      // color shows mostly on the lit surface
+    if (region === selectedRegion) {  // brighten the inspected zone
+      inten += 0.2 + Math.sin(t * 4.5) * 0.09;
+      tint = Math.min(1, tint + 0.18);
+    }
     meshes.forEach(m => {
       m.material.emissive.copy(col);
       m.material.emissiveIntensity = inten;
@@ -378,19 +473,110 @@ function updateRegions(t, dt) {
   }
 }
 
-// ── Phase 3: live biomarker feed ──────────────────────────
-let latest = null;     // last full snapshot (markers + overall)
+// ── Phase 4: interaction + detail panel ───────────────────
+const REGION_INFO = {
+  cardio:      { name: 'Cardiovascular', desc: 'Heart rate, HRV, recovery, rhythm and breathing — the core of your Watch signal.' },
+  brain:       { name: 'Brain & Sleep',  desc: 'Sleep quality and HRV-based recovery reflect nervous-system load.' },
+  legs:        { name: 'Legs & Output',  desc: 'Aerobic fitness, walking heart rate and daily movement.' },
+  extremities: { name: 'Extremities',    desc: 'Blood-oxygen saturation, read at the periphery.' },
+  gut:         { name: 'Core & Temp',    desc: 'Wrist-temperature deviation — an early illness / inflammation proxy.' },
+  pelvis:      { name: 'Pelvis',         desc: null },
+  arms:        { name: 'Arms',           desc: null },
+};
+const STATUS_COLOR = { good: 'var(--good)', warn: 'var(--warn)', critical: 'var(--bad)' };
+const STATUS_WORD  = { good: 'Optimal', warn: 'Caution', critical: 'Critical' };
+
+let latest = null;                 // last full snapshot
+let selectedRegion = null;
+const prevValues = {};             // key -> last value (for trend arrows)
+
+function renderPanel() {
+  const panel = document.getElementById('panel');
+  if (!selectedRegion) { panel.classList.remove('open'); return; }
+  const info = REGION_INFO[selectedRegion] || { name: selectedRegion, desc: null };
+  document.getElementById('p-title').textContent = info.name;
+
+  const ms = (latest ? latest.markers : []).filter(m => m.regions.includes(selectedRegion));
+  const pill = document.getElementById('p-pill');
+  const desc = document.getElementById('p-desc');
+  const cont = document.getElementById('p-markers');
+
+  if (ms.length === 0) {
+    pill.style.display = 'none';
+    desc.textContent = 'No Apple Watch signal maps to this region. It lights up from the Lab layer — blood-panel markers like cortisol & inflammation — coming soon.';
+    cont.innerHTML = '<div class="panel-empty">Lab Layer Pending</div>';
+    return;
+  }
+  pill.style.display = 'inline-flex';
+  const order = { good: 0, warn: 1, critical: 2 };
+  const worst = ms.reduce((a, m) => order[m.status] > order[a] ? m.status : a, 'good');
+  pill.querySelector('.pill-dot').style.background = STATUS_COLOR[worst];
+  pill.style.color = STATUS_COLOR[worst];
+  document.getElementById('p-pill-txt').textContent = STATUS_WORD[worst];
+  desc.textContent = info.desc || '';
+
+  cont.innerHTML = ms.map(m => {
+    const tr  = m._trend === 'up' ? '▲' : m._trend === 'down' ? '▼' : '·';
+    const val = m.unit ? `${m.value}<span class="munit">${m.unit}</span>` : m.value;
+    return `<div class="mrow">
+        <span class="mdot" style="color:${STATUS_COLOR[m.status]};background:${STATUS_COLOR[m.status]}"></span>
+        <span class="mlabel">${m.label}</span>
+        <span class="mval">${val}</span>
+        <span class="mtrend">${tr}</span>
+      </div>`;
+  }).join('');
+}
+
+function selectRegion(r) {
+  selectedRegion = r;
+  document.getElementById('panel').classList.add('open');
+  renderPanel();
+}
+function closePanel() {
+  selectedRegion = null;
+  document.getElementById('panel').classList.remove('open');
+}
+document.getElementById('p-close').addEventListener('click', closePanel);
+
+// Raycast click-to-select (ignores drags)
+const ray = new THREE.Raycaster();
+const ptr = new THREE.Vector2();
+let downPt = null;
+renderer.domElement.addEventListener('pointerdown', e => {
+  downPt = { x: e.clientX, y: e.clientY, t: performance.now() };
+});
+renderer.domElement.addEventListener('pointerup', e => {
+  if (!downPt) return;
+  const moved = Math.hypot(e.clientX - downPt.x, e.clientY - downPt.y);
+  const dt = performance.now() - downPt.t;
+  downPt = null;
+  if (moved > 6 || dt > 450) return;            // it was a rotate-drag
+  ptr.x = (e.clientX / window.innerWidth) * 2 - 1;
+  ptr.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  ray.setFromCamera(ptr, camera);
+  const hits = ray.intersectObjects(Object.values(parts), false);
+  if (hits.length) selectRegion(hits[0].object.userData.region);
+  else closePanel();
+});
+
+// ── Live biomarker feed ───────────────────────────────────
 async function pollFeed() {
   try {
     const r = await fetch('/api/biomarkers', { cache: 'no-store' });
     const data = await r.json();
+    data.markers.forEach(m => {
+      const p = prevValues[m.key];
+      if (typeof m.value === 'number' && typeof p === 'number') {
+        m._trend = m.value > p + 0.05 ? 'up' : m.value < p - 0.05 ? 'down' : 'flat';
+      } else m._trend = 'flat';
+      prevValues[m.key] = m.value;
+    });
     latest = data;
-    for (const [region, sev] of Object.entries(data.regions)) {
-      setRegionSeverity(region, sev);
-    }
+    for (const [region, sev] of Object.entries(data.regions)) setRegionSeverity(region, sev);
     window.SOMA && (window.SOMA.latest = data);
     const score = document.getElementById('score-val');
     if (score) score.textContent = data.overall;
+    renderPanel();   // live-refresh the open panel
   } catch (e) { /* keep last good state */ }
 }
 pollFeed();
