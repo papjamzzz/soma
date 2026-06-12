@@ -34,7 +34,7 @@
       background:
         radial-gradient(120% 90% at 50% 30%, #14182a 0%, #0a0c14 45%, #050608 100%);
     }
-    #stage canvas { display: block; }
+    #stage canvas { display: block; opacity: 0; transition: opacity 1.2s ease; }
 
     /* soft vignette over everything */
     #vignette {
@@ -167,12 +167,36 @@
       letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim);
     }
 
-    /* ── LEGEND ── */
-    .legend {
-      position: fixed; left: 22px; bottom: 24px; z-index: 30;
-      display: flex; flex-direction: column; gap: 9px;
-      background: rgba(13,15,26,0.5); backdrop-filter: blur(10px);
-      border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px;
+    /* ── HUD (score ring + legend + feed) ── */
+    .hud {
+      position: fixed; left: 22px; bottom: 22px; z-index: 30; width: 178px;
+      display: flex; flex-direction: column; gap: 11px;
+      background: rgba(13,15,26,0.55); backdrop-filter: blur(14px);
+      border: 1px solid var(--border); border-radius: 16px; padding: 18px 18px 15px;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.4);
+    }
+    .hud-score { position: relative; width: 120px; height: 120px; margin: 2px auto 0; }
+    .ring { width: 120px; height: 120px; transform: rotate(-90deg); }
+    .ring-bg { fill: none; stroke: rgba(255,255,255,0.06); stroke-width: 8; }
+    .ring-fg {
+      fill: none; stroke: var(--good); stroke-width: 8; stroke-linecap: round;
+      stroke-dasharray: 326.7; stroke-dashoffset: 326.7;
+      transition: stroke .5s; filter: drop-shadow(0 0 6px currentColor);
+    }
+    .ring-center {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    .ring-num { font-size: 34px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
+    .ring-lbl {
+      font-size: 8.5px; font-weight: 700; letter-spacing: 0.2em;
+      text-transform: uppercase; color: var(--dim); margin-top: 5px;
+    }
+    .hud-div { height: 1px; background: var(--border); }
+    .hud-feed {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--dim);
     }
     .legend-item {
       display: flex; align-items: center; gap: 9px;
@@ -207,12 +231,9 @@
     </div>
   </div>
   <div class="header-right">
-    <div class="score">
-      <span class="score-num" id="score-val">--</span>
-      <span class="score-lbl">Body Score</span>
-    </div>
-    <span class="pulse-dot"></span>
-    <span>Simulated Feed</span>
+    <span>Apple Watch</span>
+    <span style="opacity:.4">·</span>
+    <span>12 Signals</span>
   </div>
 </header>
 
@@ -236,10 +257,23 @@
   <div class="markers" id="p-markers"></div>
 </aside>
 
-<div class="legend">
+<div class="hud">
+  <div class="hud-score">
+    <svg class="ring" viewBox="0 0 120 120">
+      <circle class="ring-bg" cx="60" cy="60" r="52"/>
+      <circle class="ring-fg" id="ring-fg" cx="60" cy="60" r="52"/>
+    </svg>
+    <div class="ring-center">
+      <div class="ring-num" id="score-val">--</div>
+      <div class="ring-lbl">Body Score</div>
+    </div>
+  </div>
+  <div class="hud-div"></div>
   <div class="legend-item"><span class="legend-dot" style="color:var(--good);background:var(--good)"></span>Optimal</div>
   <div class="legend-item"><span class="legend-dot" style="color:var(--warn);background:var(--warn)"></span>Caution</div>
   <div class="legend-item"><span class="legend-dot" style="color:var(--bad);background:var(--bad)"></span>Critical</div>
+  <div class="hud-div"></div>
+  <div class="hud-feed"><span class="pulse-dot"></span> Simulated Feed</div>
 </div>
 
 <div id="loader">
@@ -381,6 +415,24 @@ const pad = new THREE.Mesh(padGeo, padMat);
 pad.rotation.x = -Math.PI/2;
 pad.position.y = -0.86;
 scene.add(pad);
+
+// ── Ambient particle field (atmospheric depth) ────────────
+const pCount = 170;
+const pPos = new Float32Array(pCount * 3);
+for (let i = 0; i < pCount; i++) {
+  const r = 1.7 + Math.random() * 1.9;
+  const th = Math.random() * Math.PI * 2;
+  const ph = Math.acos(2 * Math.random() - 1);
+  pPos[i*3]   = r * Math.sin(ph) * Math.cos(th);
+  pPos[i*3+1] = (Math.random() * 2 - 1) * 1.4;
+  pPos[i*3+2] = r * Math.sin(ph) * Math.sin(th);
+}
+const pGeo = new THREE.BufferGeometry();
+pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+const particles = new THREE.Points(pGeo, new THREE.PointsMaterial({
+  color: 0x6f8bd0, size: 0.013, transparent: true, opacity: 0.4, depthWrite: false,
+}));
+scene.add(particles);
 
 // ── Post-processing (bloom for premium glow) ──────────────
 const composer = new EffectComposer(renderer);
@@ -574,13 +626,25 @@ async function pollFeed() {
     latest = data;
     for (const [region, sev] of Object.entries(data.regions)) setRegionSeverity(region, sev);
     window.SOMA && (window.SOMA.latest = data);
-    const score = document.getElementById('score-val');
-    if (score) score.textContent = data.overall;
     renderPanel();   // live-refresh the open panel
   } catch (e) { /* keep last good state */ }
 }
 pollFeed();
 setInterval(pollFeed, 2000);
+
+// ── Body Score ring ───────────────────────────────────────
+const RING_C = 326.7;                 // 2πr, r=52
+const ringFg = document.getElementById('ring-fg');
+const scoreEl = document.getElementById('score-val');
+let scoreDisp = 0;                     // eases up from 0 on load
+function updateScoreRing(v) {
+  const pct = Math.max(0, Math.min(100, v)) / 100;
+  ringFg.style.strokeDashoffset = RING_C * (1 - pct);
+  const col = v >= 80 ? 'var(--good)' : v >= 60 ? 'var(--warn)' : 'var(--bad)';
+  ringFg.style.stroke = col; ringFg.style.color = col;
+  scoreEl.textContent = Math.round(v);
+  scoreEl.style.color = col;
+}
 
 // ── Animate ───────────────────────────────────────────────
 const clock = new THREE.Clock();
@@ -589,17 +653,22 @@ function animate() {
   requestAnimationFrame(animate);
   const t = clock.getElapsedTime();
   const dt = Math.min(0.1, t - prev); prev = t;
-  // subtle breathing on the chest so it feels alive
+  // subtle breathing on the chest + gentle whole-body float
   const breathe = 1 + Math.sin(t * 1.1) * 0.012;
   chest.scale.set(1.05 * breathe, 1.0 * breathe, 0.62);
+  body.position.y = 0.05 + Math.sin(t * 0.6) * 0.015;
+  particles.rotation.y += dt * 0.02;
   updateRegions(t, dt);
+  // ease the score ring toward the live overall
+  if (latest) { scoreDisp += (latest.overall - scoreDisp) * Math.min(1, dt * 2.2); updateScoreRing(scoreDisp); }
   controls.update();
   composer.render();
 }
 animate();
 
-// reveal
+// reveal — fade the canvas in and drop the loader
 setTimeout(() => {
+  renderer.domElement.style.opacity = '1';
   const l = document.getElementById('loader');
   if (l) l.classList.add('hide');
 }, 350);
