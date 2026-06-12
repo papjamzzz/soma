@@ -86,6 +86,41 @@
     }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
 
+    /* ── LAYER TOGGLE ── */
+    .layer-wrap {
+      position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+      z-index: 35; display: flex; flex-direction: column; align-items: center; gap: 7px;
+    }
+    .layer-toggle {
+      display: flex; background: rgba(13,15,26,0.6); backdrop-filter: blur(14px);
+      border: 1px solid var(--border); border-radius: 100px; padding: 4px;
+    }
+    .layer-toggle button {
+      background: transparent; border: none; cursor: pointer;
+      color: var(--dim); font-family: inherit;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+      padding: 7px 18px; border-radius: 100px; transition: all .25s;
+    }
+    .layer-toggle button:hover { color: var(--text); }
+    .layer-toggle button.active {
+      background: linear-gradient(140deg, var(--accent), #6f7bff);
+      color: #06080f;
+    }
+    .layer-note {
+      font-size: 9.5px; font-weight: 700; letter-spacing: 0.16em;
+      text-transform: uppercase; color: var(--dim); opacity: 0; transition: opacity .3s;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .layer-note.show { opacity: 0.75; }
+    .layer-note b { color: var(--amber); font-weight: 800; }
+
+    /* lab badge in marker rows */
+    .lab-badge {
+      font-size: 8px; font-weight: 800; letter-spacing: 0.1em;
+      color: var(--amber); border: 1px solid rgba(255,180,84,0.35);
+      border-radius: 5px; padding: 2px 5px; margin-left: 2px;
+    }
+
     /* ── HINT ── */
     .hint {
       position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
@@ -236,6 +271,15 @@
     <span>12 Signals</span>
   </div>
 </header>
+
+<div class="layer-wrap">
+  <div class="layer-toggle">
+    <button data-layer="watch">Watch</button>
+    <button data-layer="lab">Lab</button>
+    <button data-layer="both" class="active">Both</button>
+  </div>
+  <div class="layer-note" id="layer-note"><b>Lab</b> = simulated blood panel · not Watch data</div>
+</div>
 
 <div class="hint" id="hint">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -527,20 +571,53 @@ function updateRegions(t, dt) {
 
 // ── Phase 4: interaction + detail panel ───────────────────
 const REGION_INFO = {
-  cardio:      { name: 'Cardiovascular', desc: 'Heart rate, HRV, recovery, rhythm and breathing — the core of your Watch signal.' },
-  brain:       { name: 'Brain & Sleep',  desc: 'Sleep quality and HRV-based recovery reflect nervous-system load.' },
-  legs:        { name: 'Legs & Output',  desc: 'Aerobic fitness, walking heart rate and daily movement.' },
-  extremities: { name: 'Extremities',    desc: 'Blood-oxygen saturation, read at the periphery.' },
-  gut:         { name: 'Core & Temp',    desc: 'Wrist-temperature deviation — an early illness / inflammation proxy.' },
-  pelvis:      { name: 'Pelvis',         desc: null },
-  arms:        { name: 'Arms',           desc: null },
+  cardio:      { name: 'Cardiovascular', desc: 'Heart rate, rhythm, recovery and circulating lipids.' },
+  brain:       { name: 'Brain & Sleep',  desc: 'Sleep, recovery, stress load and thyroid signaling.' },
+  legs:        { name: 'Legs & Output',  desc: 'Aerobic output, daily movement and muscle hormones.' },
+  extremities: { name: 'Extremities',    desc: 'Peripheral blood-oxygen saturation.' },
+  gut:         { name: 'Core & Metabolic', desc: 'Temperature, glucose and systemic inflammation.' },
+  pelvis:      { name: 'Pelvis',         desc: 'Hormonal balance and bone-health markers.' },
+  arms:        { name: 'Arms',           desc: 'Muscle hormones and systemic inflammation.' },
 };
 const STATUS_COLOR = { good: 'var(--good)', warn: 'var(--warn)', critical: 'var(--bad)' };
 const STATUS_WORD  = { good: 'Optimal', warn: 'Caution', critical: 'Critical' };
 
 let latest = null;                 // last full snapshot
 let selectedRegion = null;
+let layer = 'both';                // 'watch' | 'lab' | 'both'
+let targetOverall = 0;             // score ring eases toward this
 const prevValues = {};             // key -> last value (for trend arrows)
+
+function activeRegions() {
+  if (!latest) return {};
+  if (layer === 'watch') return latest.regions_watch;
+  if (layer === 'lab')   return latest.regions_lab;
+  const out = {};                  // both = worst of the two
+  const keys = new Set([...Object.keys(latest.regions_watch), ...Object.keys(latest.regions_lab)]);
+  keys.forEach(k => out[k] = Math.max(latest.regions_watch[k] || 0, latest.regions_lab[k] || 0));
+  return out;
+}
+
+function applyLayer() {
+  if (!latest) return;
+  const regs = activeRegions();
+  for (const [r, s] of Object.entries(regs)) setRegionSeverity(r, s);
+  targetOverall = layer === 'watch' ? latest.overall_watch
+               : layer === 'lab'   ? latest.overall_lab
+               : Math.round((latest.overall_watch + latest.overall_lab) / 2);
+  renderPanel();
+}
+
+// toggle wiring
+document.querySelectorAll('.layer-toggle button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    layer = btn.dataset.layer;
+    document.querySelectorAll('.layer-toggle button').forEach(b => b.classList.toggle('active', b === btn));
+    document.getElementById('layer-note').classList.toggle('show', layer !== 'watch');
+    applyLayer();
+  });
+});
+document.getElementById('layer-note').classList.add('show');   // 'both' default includes lab
 
 function renderPanel() {
   const panel = document.getElementById('panel');
@@ -548,15 +625,18 @@ function renderPanel() {
   const info = REGION_INFO[selectedRegion] || { name: selectedRegion, desc: null };
   document.getElementById('p-title').textContent = info.name;
 
-  const ms = (latest ? latest.markers : []).filter(m => m.regions.includes(selectedRegion));
+  const ms = (latest ? latest.markers : []).filter(m =>
+    m.regions.includes(selectedRegion) && (layer === 'both' || m.source === layer));
   const pill = document.getElementById('p-pill');
   const desc = document.getElementById('p-desc');
   const cont = document.getElementById('p-markers');
 
   if (ms.length === 0) {
     pill.style.display = 'none';
-    desc.textContent = 'No Apple Watch signal maps to this region. It lights up from the Lab layer — blood-panel markers like cortisol & inflammation — coming soon.';
-    cont.innerHTML = '<div class="panel-empty">Lab Layer Pending</div>';
+    desc.textContent = layer === 'watch'
+      ? 'No Apple Watch signal maps to this region. Switch to the Lab layer to see blood-panel markers for this zone.'
+      : 'No markers in this layer for this region.';
+    cont.innerHTML = '<div class="panel-empty">No Signal · This Layer</div>';
     return;
   }
   pill.style.display = 'inline-flex';
@@ -570,9 +650,10 @@ function renderPanel() {
   cont.innerHTML = ms.map(m => {
     const tr  = m._trend === 'up' ? '▲' : m._trend === 'down' ? '▼' : '·';
     const val = m.unit ? `${m.value}<span class="munit">${m.unit}</span>` : m.value;
+    const badge = m.source === 'lab' ? '<span class="lab-badge">LAB</span>' : '';
     return `<div class="mrow">
         <span class="mdot" style="color:${STATUS_COLOR[m.status]};background:${STATUS_COLOR[m.status]}"></span>
-        <span class="mlabel">${m.label}</span>
+        <span class="mlabel">${m.label}${badge}</span>
         <span class="mval">${val}</span>
         <span class="mtrend">${tr}</span>
       </div>`;
@@ -624,9 +705,8 @@ async function pollFeed() {
       prevValues[m.key] = m.value;
     });
     latest = data;
-    for (const [region, sev] of Object.entries(data.regions)) setRegionSeverity(region, sev);
     window.SOMA && (window.SOMA.latest = data);
-    renderPanel();   // live-refresh the open panel
+    applyLayer();    // drive region glow + score for the active layer
   } catch (e) { /* keep last good state */ }
 }
 pollFeed();
@@ -659,8 +739,8 @@ function animate() {
   body.position.y = 0.05 + Math.sin(t * 0.6) * 0.015;
   particles.rotation.y += dt * 0.02;
   updateRegions(t, dt);
-  // ease the score ring toward the live overall
-  if (latest) { scoreDisp += (latest.overall - scoreDisp) * Math.min(1, dt * 2.2); updateScoreRing(scoreDisp); }
+  // ease the score ring toward the active-layer overall
+  scoreDisp += (targetOverall - scoreDisp) * Math.min(1, dt * 2.2); updateScoreRing(scoreDisp);
   controls.update();
   composer.render();
 }

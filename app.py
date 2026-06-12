@@ -31,26 +31,49 @@ MARKERS = [
     ("ecg",            "ECG Rhythm",        "",    ["cardio"],             0,     0,     0,     1,     0,     0,    1),  # categorical, handled specially
 ]
 
-# Live drifting state (replace this with real HealthKit values in Phase 6)
+# ── Lab layer (Path B) ────────────────────────────────────────────────
+# SIMULATED blood-panel markers. A watch can NEVER read these — they need
+# a real blood/saliva test (Function Health, etc.). They fill the body
+# zones the watch can't reach (gut, pelvis, arms) and are always tagged
+# `source: lab` so the UI never passes them off as live Watch data.
+LAB = [
+    # key            label                 unit     regions                   base   optLo  optHi  scale  sd     lo    hi
+    ("cortisol",     "Cortisol",           "µg/dL", ["gut", "brain"],         23,    6,     18,    12,    1.2,   3,    38),
+    ("testosterone", "Testosterone",       "ng/dL", ["arms", "legs", "pelvis"], 330, 400,   1000,  350,   12,    180,  1100),
+    ("crp",          "CRP (Inflammation)", "mg/L",  ["gut", "arms"],          2.2,   0,     1.0,   4,     0.25,  0,    12),
+    ("glucose",      "Fasting Glucose",    "mg/dL", ["gut"],                  92,    70,    99,    40,    2.0,   60,   200),
+    ("vitamin_d",    "Vitamin D",          "ng/mL", ["pelvis"],               34,    30,    100,   25,    1.0,   8,    90),
+    ("tsh",          "Thyroid (TSH)",      "mIU/L", ["brain"],                2.1,   0.4,   4.0,   3,     0.15,  0.1,  9),
+    ("estradiol",    "Estradiol",          "pg/mL", ["pelvis"],               30,    15,    50,    35,    2.0,   5,    130),
+    ("ldl",          "LDL Cholesterol",    "mg/dL", ["cardio"],               118,   0,     100,   60,    3.0,   50,   230),
+]
+
+SOURCES = [("watch", MARKERS), ("lab", LAB)]
+ALL_REGIONS = ["brain", "cardio", "gut", "pelvis", "arms", "legs", "extremities"]
+
+# Live drifting state (replace this with real HealthKit / lab values later)
 # tuple layout: (key, label, unit, regions, base, optLo, optHi, scale, sd, lo, hi)
-STATE = {m[0]: m[4] for m in MARKERS}
+STATE = {}
+for _src, _lst in SOURCES:
+    for _m in _lst:
+        STATE[_m[0]] = _m[4]
 STATE["ecg"] = 0.0          # 0 = Sinus, 1 = AFib flag
-_last_tick = [time.time()]
 
 def _step():
     """Mean-reverting random walk so values feel organically alive."""
-    for key, label, unit, regions, base, optLo, optHi, scale, sd, lo, hi in MARKERS:
-        if key == "ecg":
-            # mostly Sinus; rare, sticky AFib flag
-            if STATE["ecg"] >= 1:
-                if random.random() < 0.35: STATE["ecg"] = 0.0
-            elif random.random() < 0.02:
-                STATE["ecg"] = 1.0
-            continue
-        v = STATE[key]
-        v += random.gauss(0, sd * 0.5)      # jitter
-        v += (base - v) * 0.05              # pull toward baseline
-        STATE[key] = max(lo, min(hi, v))
+    for _src, _lst in SOURCES:
+        for key, label, unit, regions, base, optLo, optHi, scale, sd, lo, hi in _lst:
+            if key == "ecg":
+                # mostly Sinus; rare, sticky AFib flag
+                if STATE["ecg"] >= 1:
+                    if random.random() < 0.35: STATE["ecg"] = 0.0
+                elif random.random() < 0.02:
+                    STATE["ecg"] = 1.0
+                continue
+            v = STATE[key]
+            v += random.gauss(0, sd * 0.5)      # jitter
+            v += (base - v) * 0.05              # pull toward baseline
+            STATE[key] = max(lo, min(hi, v))
 
 def _severity(key, v, optLo, optHi, scale):
     if key == "ecg":
@@ -62,26 +85,37 @@ def _status(sev):
 
 def snapshot():
     _step()
-    markers, region_sev = [], {}
-    for key, label, unit, regions, base, optLo, optHi, scale, sd, lo, hi in MARKERS:
-        v = STATE[key]
-        sev = _severity(key, v, optLo, optHi, scale)
-        if key == "ecg":
-            disp, unit_out = ("AFib" if v >= 1 else "Sinus"), ""
-        else:
-            disp = round(v, 1)
-            unit_out = unit
-        markers.append({
-            "key": key, "label": label, "value": disp, "unit": unit_out,
-            "regions": regions, "severity": round(sev, 3), "status": _status(sev),
-        })
-        for r in regions:
-            region_sev[r] = max(region_sev.get(r, 0.0), sev)
-    # regions with no watch signal stay calm (healthy green)
-    for r in ["pelvis", "arms", "extremities", "gut", "brain", "cardio", "legs"]:
-        region_sev.setdefault(r, 0.0)
-    overall = round(100 - (sum(m["severity"] for m in markers) / len(markers)) * 100)
-    return {"markers": markers, "regions": region_sev, "overall": overall, "ts": time.time()}
+    markers = []
+    reg = {"watch": {}, "lab": {}}
+    for src, lst in SOURCES:
+        for key, label, unit, regions, base, optLo, optHi, scale, sd, lo, hi in lst:
+            v = STATE[key]
+            sev = _severity(key, v, optLo, optHi, scale)
+            if key == "ecg":
+                disp, unit_out = ("AFib" if v >= 1 else "Sinus"), ""
+            else:
+                disp, unit_out = round(v, 1), unit
+            markers.append({
+                "key": key, "label": label, "value": disp, "unit": unit_out,
+                "regions": regions, "severity": round(sev, 3),
+                "status": _status(sev), "source": src,
+            })
+            for r in regions:
+                reg[src][r] = max(reg[src].get(r, 0.0), sev)
+    for src in ("watch", "lab"):
+        for r in ALL_REGIONS:
+            reg[src].setdefault(r, 0.0)
+
+    def overall(src):
+        ms = [m for m in markers if m["source"] == src]
+        return round(100 - (sum(m["severity"] for m in ms) / len(ms)) * 100)
+
+    return {
+        "markers": markers,
+        "regions_watch": reg["watch"], "regions_lab": reg["lab"],
+        "overall_watch": overall("watch"), "overall_lab": overall("lab"),
+        "ts": time.time(),
+    }
 
 @app.route('/')
 def index():

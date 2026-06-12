@@ -20,8 +20,8 @@ simulated 12-signal Apple Watch feed, click-to-inspect panel working.
 - [x] Phase 3 — live simulated biomarker engine (12 Watch signals, /api/biomarkers, random-walk drift)
 - [x] Phase 4 — interaction: raycast click → detail panel (markers, values, trend arrows, legend, selection glow)
 - [ ] Phase 5 — luxury UI polish (overall score ring, transitions, ambient motion, brand)
-- [ ] Phase 6 — real HealthKit data path (swap STATE source for exported Watch data)
-- [ ] Lab layer (Path B) — simulated blood-panel markers (cortisol/testosterone/inflammation) for gut/pelvis/arms; clearly labeled, never faked as Watch data
+- [x] Lab layer (Path B) — 8 simulated blood-panel markers (cortisol, testosterone, CRP, glucose, vit D, TSH, estradiol, LDL) fill gut/pelvis/arms/brain; Watch/Lab/Both toggle, LAB badges, "not Watch data" disclaimer
+- [ ] Phase 6 — real HealthKit data path (swap STATE source for exported Watch data; needs iOS companion or Health export — its own project)
 
 ## Data model
 - 12 markers in `app.py` MARKERS tuple: (key,label,unit,regions,base,optLo,optHi,scale,sd,lo,hi)
