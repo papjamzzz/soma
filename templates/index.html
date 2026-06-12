@@ -193,12 +193,12 @@ fill.position.set(-2, -1, 2); scene.add(fill);
 // ── Body material factory ─────────────────────────────────
 // Each part gets its OWN material instance so regions can be
 // colored independently in Phase 2.
-const BASE_COLOR = new THREE.Color(0x8b91a8);
+const BASE_COLOR = new THREE.Color(0x5b6175);
 function bodyMaterial() {
   return new THREE.MeshStandardMaterial({
     color: BASE_COLOR.clone(),
-    roughness: 0.42,
-    metalness: 0.22,
+    roughness: 0.5,
+    metalness: 0.18,
     emissive: new THREE.Color(0x000000),
     emissiveIntensity: 1.0,
   });
@@ -283,9 +283,9 @@ const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
-  0.55,  // strength
-  0.7,   // radius
-  0.85   // threshold (only bright/emissive regions bloom)
+  0.3,   // strength
+  0.6,   // radius
+  0.92   // threshold (only the hottest red regions bloom)
 );
 composer.addPass(bloom);
 
@@ -319,6 +319,56 @@ window.addEventListener('resize', () => {
   composer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// ── Phase 2: region heat system ───────────────────────────
+// Group every mesh by its anatomical region so a whole zone
+// glows together. Severity 0 = optimal (calm green), 0.5 =
+// warning (amber), 1 = critical (hot red + pulse).
+const regionMap = {};
+Object.values(parts).forEach(m => {
+  const r = m.userData.region;
+  (regionMap[r] ||= []).push(m);
+});
+
+const C_GOOD = new THREE.Color(0x34e5a4);
+const C_WARN = new THREE.Color(0xffb454);
+const C_BAD  = new THREE.Color(0xff5d6c);
+function severityColor(s) {
+  const c = new THREE.Color();
+  if (s < 0.5) c.lerpColors(C_GOOD, C_WARN, s / 0.5);
+  else         c.lerpColors(C_WARN, C_BAD, (s - 0.5) / 0.5);
+  return c;
+}
+
+const regionState = {};               // region -> severity 0..1
+function setRegionSeverity(region, s) {
+  regionState[region] = Math.max(0, Math.min(1, s));
+}
+
+function updateRegions(t) {
+  for (const [region, meshes] of Object.entries(regionMap)) {
+    const s = regionState[region] ?? 0;
+    const col = severityColor(s);
+    // healthy = calm/dim; problems glow and pulse — kept low so HUE reads
+    const pulse = s > 0.4 ? (1 + Math.sin(t * 3.0) * 0.22 * s) : 1;
+    const inten = (0.05 + s * 0.5) * pulse;
+    const tint  = 0.45 + s * 0.35;    // color shows mostly on the lit surface
+    meshes.forEach(m => {
+      m.material.emissive.copy(col);
+      m.material.emissiveIntensity = inten;
+      m.material.color.copy(m.userData.baseColor).lerp(col, tint);
+    });
+  }
+}
+
+// ── DEMO values (Phase 3 replaces these with the live feed) ─
+setRegionSeverity('brain',       0.15);   // sleep solid
+setRegionSeverity('cardio',      0.85);   // HR / HRV flagged
+setRegionSeverity('gut',         0.45);   // mild
+setRegionSeverity('pelvis',      0.10);
+setRegionSeverity('arms',        0.30);
+setRegionSeverity('legs',        0.60);   // VO2 / walking HR
+setRegionSeverity('extremities', 0.70);   // SpO2 low at hands/feet
+
 // ── Animate ───────────────────────────────────────────────
 const clock = new THREE.Clock();
 function animate() {
@@ -327,6 +377,7 @@ function animate() {
   // subtle breathing on the chest so it feels alive
   const breathe = 1 + Math.sin(t * 1.1) * 0.012;
   chest.scale.set(1.05 * breathe, 1.0 * breathe, 0.62);
+  updateRegions(t);
   controls.update();
   composer.render();
 }
@@ -339,7 +390,7 @@ setTimeout(() => {
 }, 350);
 
 // expose for Phase 2 wiring / debugging
-window.SOMA = { scene, parts, body, camera, controls, bloom };
+window.SOMA = { scene, parts, body, camera, controls, bloom, setRegionSeverity, regionMap };
 </script>
 
 </body>

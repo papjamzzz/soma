@@ -4,6 +4,9 @@ import os
 
 load_dotenv()
 app = Flask(__name__)
+# Re-read templates from disk on every request (dev convenience)
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.jinja_env.auto_reload = True
 
 @app.route('/')
 def index():
