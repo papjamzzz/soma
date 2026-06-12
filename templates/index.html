@@ -10,106 +10,337 @@
       --bg:      #08090d;
       --surface: #0d0f1a;
       --card:    #11131e;
-      --card2:   #151828;
       --border:  #1e2235;
-      --muted:   #2a2f48;
       --text:    #f0f2ff;
       --dim:     #5a6080;
       --accent:  #4fc3f7;
+      --good:    #34e5a4;
+      --warn:    #ffb454;
+      --bad:     #ff5d6c;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
+    html, body { height: 100%; overflow: hidden; }
     body {
       background: var(--bg);
       color: var(--text);
       font-family: 'Inter', -apple-system, sans-serif;
-      min-height: 100vh;
     }
 
-    ::-webkit-scrollbar { width: 5px; }
-    ::-webkit-scrollbar-track { background: var(--surface); }
-    ::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 3px; }
+    /* ── STAGE (3D canvas lives here) ── */
+    #stage {
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(120% 90% at 50% 30%, #14182a 0%, #0a0c14 45%, #050608 100%);
+    }
+    #stage canvas { display: block; }
+
+    /* soft vignette over everything */
+    #vignette {
+      position: fixed; inset: 0; pointer-events: none; z-index: 5;
+      background: radial-gradient(70% 70% at 50% 45%, transparent 55%, rgba(0,0,0,0.55) 100%);
+    }
 
     /* ── HEADER ── */
     .header {
-      background: linear-gradient(180deg, #0e1020 0%, #08090d 100%);
-      border-bottom: 1px solid rgba(79,195,247,0.1);
-      padding: 13px 28px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      position: sticky;
-      top: 0;
-      z-index: 200;
-      backdrop-filter: blur(20px);
+      position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+      padding: 18px 26px;
+      display: flex; align-items: center; justify-content: space-between;
+      pointer-events: none;
     }
-    .header::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 0; right: 0; height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(79,195,247,0.6), transparent);
-    }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .brand img {
-      height: 30px;
-      border-radius: 6px;
+    .brand { display: flex; align-items: center; gap: 11px; pointer-events: auto; }
+    .brand-mark {
+      width: 30px; height: 30px; border-radius: 8px;
+      background: linear-gradient(140deg, var(--accent), #6f7bff);
+      box-shadow: 0 0 22px rgba(79,195,247,0.45);
+      display: grid; place-items: center;
+      font-weight: 900; font-size: 16px; color: #06080f;
     }
     .brand-name {
-      font-size: 17px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      color: var(--accent);
+      font-size: 18px; font-weight: 800; letter-spacing: -0.02em;
     }
+    .brand-sub {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.22em;
+      text-transform: uppercase; color: var(--dim); margin-top: 1px;
+    }
+    .header-right {
+      pointer-events: auto;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.18em;
+      text-transform: uppercase; color: var(--dim);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .pulse-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--good); box-shadow: 0 0 10px var(--good);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
 
-    /* ── MAIN ── */
-    .main {
-      max-width: 960px;
-      margin: 0 auto;
-      padding: 32px 24px;
+    /* ── HINT ── */
+    .hint {
+      position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
+      z-index: 30;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--dim);
+      display: flex; align-items: center; gap: 10px;
+      background: rgba(13,15,26,0.5); backdrop-filter: blur(10px);
+      border: 1px solid var(--border); border-radius: 100px;
+      padding: 9px 18px;
+      transition: opacity .6s;
     }
+    .hint svg { width: 15px; height: 15px; opacity: 0.7; }
 
-    /* ── INFO BAR ── */
-    #info-bar {
-      position: fixed;
-      bottom: 0; left: 0; right: 0;
-      background: var(--surface);
-      border-top: 1px solid var(--border);
-      padding: 8px 20px;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--dim);
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      z-index: 100;
+    /* ── LOADING ── */
+    #loader {
+      position: fixed; inset: 0; z-index: 50;
+      display: grid; place-items: center;
+      background: var(--bg);
+      transition: opacity .8s ease;
     }
-    #info-bar img { height: 16px; opacity: 0.6; }
+    #loader.hide { opacity: 0; pointer-events: none; }
+    .loader-inner { text-align: center; }
+    .loader-ring {
+      width: 46px; height: 46px; margin: 0 auto 18px;
+      border: 2px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loader-text {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.22em;
+      text-transform: uppercase; color: var(--dim);
+    }
   </style>
 </head>
 <body>
 
+<div id="stage"></div>
+<div id="vignette"></div>
+
 <header class="header">
   <div class="brand">
-    <img src="/static/logo.png" onerror="this.style.display='none'">
-    <div class="brand-name">soma</div>
+    <div class="brand-mark">S</div>
+    <div>
+      <div class="brand-name">soma</div>
+      <div class="brand-sub">Live Biomarker Body</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <span class="pulse-dot"></span>
+    <span>Simulated Feed</span>
   </div>
 </header>
 
-<div class="main">
-  <!-- Build your dashboard here -->
+<div class="hint" id="hint">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>
+  </svg>
+  Drag to rotate &nbsp;·&nbsp; Scroll to zoom
 </div>
 
-<div id="info-bar">
-  <img src="/static/logo.png" onerror="this.style.display='none'">
-  <span>soma</span>
+<div id="loader">
+  <div class="loader-inner">
+    <div class="loader-ring"></div>
+    <div class="loader-text">Initializing Body</div>
+  </div>
 </div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+const stage = document.getElementById('stage');
+
+// ── Renderer ──────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+stage.appendChild(renderer.domElement);
+
+// ── Scene + Camera ────────────────────────────────────────
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(38, window.innerWidth/window.innerHeight, 0.1, 100);
+camera.position.set(0, 0.25, 3.4);
+
+// ── Environment (soft studio reflections) ─────────────────
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+// ── Lights ────────────────────────────────────────────────
+scene.add(new THREE.HemisphereLight(0x5a6a90, 0x0a0c14, 0.55));
+const key = new THREE.DirectionalLight(0xffffff, 1.6);
+key.position.set(2.5, 4, 3); scene.add(key);
+const rim = new THREE.DirectionalLight(0x6f7bff, 1.4);
+rim.position.set(-3, 2, -2.5); scene.add(rim);
+const fill = new THREE.DirectionalLight(0x4fc3f7, 0.5);
+fill.position.set(-2, -1, 2); scene.add(fill);
+
+// ── Body material factory ─────────────────────────────────
+// Each part gets its OWN material instance so regions can be
+// colored independently in Phase 2.
+const BASE_COLOR = new THREE.Color(0x8b91a8);
+function bodyMaterial() {
+  return new THREE.MeshStandardMaterial({
+    color: BASE_COLOR.clone(),
+    roughness: 0.42,
+    metalness: 0.22,
+    emissive: new THREE.Color(0x000000),
+    emissiveIntensity: 1.0,
+  });
+}
+
+// ── Body group ────────────────────────────────────────────
+const body = new THREE.Group();
+scene.add(body);
+const parts = {};   // name -> mesh (for Phase 2 region glow)
+
+function register(name, mesh, region) {
+  mesh.userData.region = region;
+  mesh.userData.baseColor = mesh.material.color.clone();
+  parts[name] = mesh;
+  body.add(mesh);
+  return mesh;
+}
+
+// Capsule spanning two points (organic rounded joints)
+function limb(name, a, b, radius, region) {
+  const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b);
+  const dir = new THREE.Vector3().subVectors(B, A);
+  const len = dir.length();
+  const geo = new THREE.CapsuleGeometry(radius, len, 8, 20);
+  const mesh = new THREE.Mesh(geo, bodyMaterial());
+  mesh.position.copy(A).add(B).multiplyScalar(0.5);
+  mesh.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0,1,0), dir.clone().normalize()
+  );
+  return register(name, mesh, region);
+}
+
+function blob(name, radius, pos, scale, region) {
+  const geo = new THREE.SphereGeometry(radius, 32, 32);
+  const mesh = new THREE.Mesh(geo, bodyMaterial());
+  mesh.position.set(...pos);
+  if (scale) mesh.scale.set(...scale);
+  return register(name, mesh, region);
+}
+
+// ── Build the figure (androgynous, neutral proportions) ───
+// Head + neck
+blob('head', 0.135, [0, 0.78, 0], [0.9, 1.05, 0.95], 'brain');
+limb('neck', [0,0.66,0], [0,0.58,0], 0.052, 'brain');
+
+// Torso — three stacked, flattened front-to-back
+const chest   = blob('chest',   0.175, [0, 0.45, 0], [1.05, 1.0, 0.62], 'cardio');
+const abdomen = blob('abdomen', 0.15,  [0, 0.24, 0], [1.0, 1.0, 0.6],   'gut');
+const pelvis  = blob('pelvis',  0.155, [0, 0.04, 0], [1.0, 0.85, 0.62], 'pelvis');
+
+// Arms (slight outward A-pose)
+limb('upperArmL', [-0.19,0.55,0], [-0.27,0.30,0.02], 0.05, 'arms');
+limb('upperArmR', [ 0.19,0.55,0], [ 0.27,0.30,0.02], 0.05, 'arms');
+limb('forearmL',  [-0.27,0.30,0.02], [-0.31,0.05,0.05], 0.043, 'arms');
+limb('forearmR',  [ 0.27,0.30,0.02], [ 0.31,0.05,0.05], 0.043, 'arms');
+blob('handL', 0.055, [-0.32,-0.02,0.06], [0.9,1.1,0.6], 'extremities');
+blob('handR', 0.055, [ 0.32,-0.02,0.06], [0.9,1.1,0.6], 'extremities');
+
+// Legs
+limb('thighL', [-0.09,-0.04,0], [-0.11,-0.42,0], 0.082, 'legs');
+limb('thighR', [ 0.09,-0.04,0], [ 0.11,-0.42,0], 0.082, 'legs');
+limb('shinL',  [-0.11,-0.42,0], [-0.12,-0.82,0], 0.06, 'legs');
+limb('shinR',  [ 0.11,-0.42,0], [ 0.12,-0.82,0], 0.06, 'legs');
+blob('footL', 0.06, [-0.12,-0.86,0.04], [0.8,0.6,1.5], 'extremities');
+blob('footR', 0.06, [ 0.12,-0.86,0.04], [0.8,0.6,1.5], 'extremities');
+
+// Lift so the figure centers nicely in frame
+body.position.y = 0.05;
+
+// ── Ground glow (contact pad) ─────────────────────────────
+const padGeo = new THREE.CircleGeometry(1.1, 64);
+const padMat = new THREE.MeshBasicMaterial({
+  color: 0x4fc3f7, transparent: true, opacity: 0.06,
+});
+const pad = new THREE.Mesh(padGeo, padMat);
+pad.rotation.x = -Math.PI/2;
+pad.position.y = -0.86;
+scene.add(pad);
+
+// ── Post-processing (bloom for premium glow) ──────────────
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  0.55,  // strength
+  0.7,   // radius
+  0.85   // threshold (only bright/emissive regions bloom)
+);
+composer.addPass(bloom);
+
+// ── Controls ──────────────────────────────────────────────
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.enablePan = false;
+controls.minDistance = 2.2;
+controls.maxDistance = 5.5;
+controls.target.set(0, 0.12, 0);
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.8;
+controls.minPolarAngle = Math.PI * 0.15;
+controls.maxPolarAngle = Math.PI * 0.85;
+
+// stop auto-rotate once the user grabs it
+let userInteracted = false;
+controls.addEventListener('start', () => {
+  userInteracted = true;
+  controls.autoRotate = false;
+  const h = document.getElementById('hint');
+  if (h) h.style.opacity = '0';
+});
+
+// ── Resize ────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ── Animate ───────────────────────────────────────────────
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+  // subtle breathing on the chest so it feels alive
+  const breathe = 1 + Math.sin(t * 1.1) * 0.012;
+  chest.scale.set(1.05 * breathe, 1.0 * breathe, 0.62);
+  controls.update();
+  composer.render();
+}
+animate();
+
+// reveal
+setTimeout(() => {
+  const l = document.getElementById('loader');
+  if (l) l.classList.add('hide');
+}, 350);
+
+// expose for Phase 2 wiring / debugging
+window.SOMA = { scene, parts, body, camera, controls, bloom };
+</script>
 
 </body>
 </html>
