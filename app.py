@@ -130,4 +130,5 @@ def status():
     return jsonify({'status': 'ok', 'project': 'soma'})
 
 if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=5573, debug=False)
+    PORT = int(os.getenv("PORT", "5573"))
+    app.run(host='0.0.0.0', port=PORT, debug=False)
