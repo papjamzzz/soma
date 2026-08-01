@@ -65,7 +65,7 @@ cd ~/soma && make run
 - [ ] Wire up first route/feature
 
 ## Key Technical Decisions
-- localhost only (host=127.0.0.1)
+- Binds to 0.0.0.0 (Railway-ready); no real HealthKit data flows yet, all biomarker values are simulated random-walk, so there's nothing sensitive to expose
 
 ---
 *Last updated: 2026-06-11*
